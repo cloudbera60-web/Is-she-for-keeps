@@ -19,11 +19,8 @@ if (fs.existsSync('2nd_dev_config.env')) require('dotenv').config({ path: './2nd
 
 const { sms } = require("./msg");
 
-const {
-// Import baileys as a whole first
-const baileys = require('@whiskeysockets/baileys');
-
-// Destructure from baileys
+// FIXED BAILEYS IMPORT - Use this exact code
+const baileysImport = require('@whiskeysockets/baileys');
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -39,10 +36,24 @@ const {
     DisconnectReason,
     fetchLatestBaileysVersion,
     getAggregateVotesInPollMessage
-} = baileys;
+} = baileysImport;
 
-// Get makeInMemoryStore from baileys
-const makeInMemoryStore = baileys.makeInMemoryStore;
+// Try to get makeInMemoryStore - handle if it doesn't exist
+let makeInMemoryStore;
+try {
+    makeInMemoryStore = baileysImport.makeInMemoryStore || 
+                       require('@whiskeysockets/baileys/lib/Store').makeInMemoryStore;
+} catch (e) {
+    console.warn('⚠️ makeInMemoryStore not found, using mock store');
+    makeInMemoryStore = () => ({
+        bind: () => {},
+        loadMessage: async () => undefined,
+        saveMessage: () => {},
+        messages: {},
+        readMessages: () => {},
+        clearMessages: () => {}
+    });
+}
 // MongoDB Configuration
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://ellyongiro8:QwXDXE6tyrGpUTNb@cluster0.tyxcmm9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 
