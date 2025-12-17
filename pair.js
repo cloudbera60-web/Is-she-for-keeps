@@ -10,12 +10,9 @@ const crypto = require('crypto');
 const axios = require('axios');
 const ytdl = require('ytdl-core');
 const yts = require('yt-search');
-const FileType = require('file-type');
 const mongoose = require('mongoose');
 
 if (fs.existsSync('2nd_dev_config.env')) require('dotenv').config({ path: './2nd_dev_config.env' });
-
-const { sms } = require("./msg");
 
 // FIXED BAILEYS IMPORT
 const baileysImport = require('@whiskeysockets/baileys');
@@ -29,7 +26,6 @@ const {
     proto,
     prepareWAMessageMedia,
     downloadContentFromMessage,
-    getContentType,
     generateWAMessageFromContent,
     DisconnectReason,
     fetchLatestBaileysVersion
@@ -39,12 +35,11 @@ const {
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://ellyongiro8:QwXDXE6tyrGpUTNb@cluster0.tyxcmm9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
 
 process.env.NODE_ENV = 'production';
-process.env.PM2_NAME = 'breshyb';
 
-console.log('🚀 Auto Session Manager initialized with MongoDB');
+console.log('🚀 Mercedes Mini Bot Started');
 
 const config = {
-    // General Bot Settings
+    // Auto Status Settings
     AUTO_VIEW_STATUS: 'true',
     AUTO_LIKE_STATUS: 'true',
     AUTO_LIKE_EMOJI: ['💗', '🩵', '🥺', '🫶', '😶'],
@@ -85,7 +80,6 @@ const lastBackupTime = new Map();
 const pendingSaves = new Map();
 const restoringNumbers = new Set();
 const sessionConnectionStatus = new Map();
-const stores = new Map();
 
 // Auto-management intervals
 let autoSaveInterval;
@@ -352,10 +346,6 @@ async function handleBadMacError(number) {
             activeSockets.delete(sanitizedNumber);
         }
 
-        if (stores.has(sanitizedNumber)) {
-            stores.delete(sanitizedNumber);
-        }
-
         const sessionPath = path.join(config.SESSION_BASE_PATH, `session_${sanitizedNumber}`);
         if (fs.existsSync(sessionPath)) {
             console.log(`🗑️ Removing corrupted session files for ${sanitizedNumber}`);
@@ -405,8 +395,7 @@ function isOwner(sender) {
     return senderNumber === ownerNumber;
 }
 
-// **SESSION MANAGEMENT**
-
+// SESSION MANAGEMENT
 function isSessionActive(number) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     const health = sessionHealth.get(sanitizedNumber);
@@ -521,17 +510,15 @@ async function deleteSessionImmediately(number) {
     lastBackupTime.delete(sanitizedNumber);
     restoringNumbers.delete(sanitizedNumber);
     activeSockets.delete(sanitizedNumber);
-    stores.delete(sanitizedNumber);
 
     await updateSessionStatus(sanitizedNumber, 'deleted', new Date().toISOString());
 
     console.log(`✅ Successfully deleted all data for inactive session: ${sanitizedNumber}`);
 }
 
-// **AUTO MANAGEMENT FUNCTIONS**
-
+// AUTO MANAGEMENT FUNCTIONS
 function initializeAutoManagement() {
-    console.log('🔄 Starting optimized auto management with MongoDB...');
+    console.log('🔄 Starting auto management with MongoDB...');
 
     initializeMongoDB().then(() => {
         setTimeout(async () => {
@@ -799,14 +786,6 @@ async function autoRestoreAllSessions() {
 
         console.log(`✅ Auto-restore completed: ${restoredSessions.length} restored, ${failedSessions.length} failed`);
 
-        if (restoredSessions.length > 0) {
-            console.log(`✅ Restored sessions: ${restoredSessions.join(', ')}`);
-        }
-
-        if (failedSessions.length > 0) {
-            console.log(`❌ Failed sessions: ${failedSessions.join(', ')}`);
-        }
-
         return { restored: restoredSessions, failed: failedSessions };
     } catch (error) {
         console.error('❌ Auto-restore failed:', error);
@@ -848,8 +827,7 @@ async function saveSessionStatus(sessionStatus) {
     }
 }
 
-// **HELPER FUNCTIONS**
-
+// HELPER FUNCTIONS
 function formatMessage(title, content, footer) {
     return `*${title}*\n\n${content}\n\n> *${footer}*`;
 }
@@ -887,18 +865,20 @@ const myquoted = {
     verifiedBizName: "Meta"
 };
 
+// AUTO VIEW STATUS AND LIKE STATUS HANDLER
 async function setupStatusHandlers(socket) {
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const message = messages[0];
         if (!message?.key || message.key.remoteJid !== 'status@broadcast' || !message.key.participant) return;
 
         try {
+            // AUTO VIEW STATUS
             if (config.AUTO_VIEW_STATUS === 'true') {
                 let retries = config.MAX_RETRIES;
                 while (retries > 0) {
                     try {
                         await socket.readMessages([message.key]);
-                        console.log('Auto-viewed status');
+                        console.log('✅ Auto-viewed status');
                         break;
                     } catch (error) {
                         retries--;
@@ -908,6 +888,7 @@ async function setupStatusHandlers(socket) {
                 }
             }
 
+            // AUTO LIKE STATUS
             if (config.AUTO_LIKE_STATUS === 'true') {
                 const randomEmoji = config.AUTO_LIKE_EMOJI[Math.floor(Math.random() * config.AUTO_LIKE_EMOJI.length)];
                 let retries = config.MAX_RETRIES;
@@ -918,22 +899,23 @@ async function setupStatusHandlers(socket) {
                             { react: { text: randomEmoji, key: message.key } },
                             { statusJidList: [message.key.participant] }
                         );
-                        console.log(`Reacted to status with ${randomEmoji}`);
+                        console.log(`✅ Auto-reacted to status with ${randomEmoji}`);
                         break;
                     } catch (error) {
                         retries--;
-                        console.warn(`Failed to react to status, retries left: ${retries}`, error);
+                        console.warn(`⚠️ Failed to react to status, retries left: ${retries}`, error);
                         if (retries === 0) throw error;
                         await delay(1000 * (config.MAX_RETRIES - retries));
                     }
                 }
             }
         } catch (error) {
-            console.error('Status handler error:', error);
+            console.error('❌ Status handler error:', error);
         }
     });
 }
 
+// COMMAND HANDLERS
 function setupCommandHandlers(socket, number) {
     socket.ev.on('messages.upsert', async ({ messages }) => {
         const msg = messages[0];
@@ -944,26 +926,40 @@ function setupCommandHandlers(socket, number) {
         let args = [];
         let sender = msg.key.remoteJid;
 
-        // Extract command and arguments
+        // Check if message is from the bot's own number (personal chat)
+        const isSelfMessage = sender === `${number}@s.whatsapp.net`;
+        
+        // Check if it's a group message
+        const isGroup = sender.endsWith('@g.us');
+        let isMentioned = false;
+        
+        if (isGroup && msg.message.extendedTextMessage?.contextInfo?.mentionedJid) {
+            const botJid = `${number}@s.whatsapp.net`;
+            isMentioned = msg.message.extendedTextMessage.contextInfo.mentionedJid.includes(botJid);
+        }
+
+        // Extract command text
+        let text = '';
         if (msg.message.conversation) {
-            const text = msg.message.conversation.trim();
-            if (text.startsWith(config.PREFIX)) {
-                const parts = text.slice(config.PREFIX.length).trim().split(/\s+/);
-                command = parts[0].toLowerCase();
-                args = parts.slice(1);
-            }
+            text = msg.message.conversation.trim();
         } else if (msg.message.extendedTextMessage?.text) {
-            const text = msg.message.extendedTextMessage.text.trim();
-            if (text.startsWith(config.PREFIX)) {
-                const parts = text.slice(config.PREFIX.length).trim().split(/\s+/);
-                command = parts[0].toLowerCase();
-                args = parts.slice(1);
+            text = msg.message.extendedTextMessage.text.trim();
+            // Remove bot mention from text if in group
+            if (isGroup && isMentioned) {
+                text = text.replace(`@${number}`, '').trim();
             }
+        }
+
+        // Check if it's a command (only process if from self or mentioned in group)
+        if ((isSelfMessage || isMentioned) && text.startsWith(config.PREFIX)) {
+            const parts = text.slice(config.PREFIX.length).trim().split(/\s+/);
+            command = parts[0].toLowerCase();
+            args = parts.slice(1);
         }
 
         if (!command) return;
 
-        console.log(`📥 Command received: ${command} from ${sender}`);
+        console.log(`📥 Command: ${command} from ${sender}`);
 
         try {
             switch (command) {
@@ -979,43 +975,53 @@ function setupCommandHandlers(socket, number) {
                         const captionText = `
 *┏────〘 ᴍᴇʀᴄᴇᴅᴇs 〙───⊷*
 *┃* ʙᴏᴛ ᴜᴘᴛɪᴍᴇ: ${hours}h ${minutes}m ${seconds}s
-*┃* ᴀᴄᴛɪᴠᴇ ʙᴏᴛs: ${activeSockets.size}
 *┃* ʏᴏᴜʀ ɴᴜᴍʙᴇʀ: ${number}
 *┃* ᴍᴇᴍᴏʀʏ ᴜsᴀɢᴇ: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB
-*┃* ᴍᴏɴɢᴏᴅʙ: ${mongoConnected ? 'Connected' : 'Connecting...'}
-*┃* ᴘᴇɴᴅɪɴɢ sᴀᴠᴇs: ${pendingSaves.size}
+*┃* ᴍᴏɴɢᴏᴅʙ: ${mongoConnected ? '✅ Connected' : '🔄 Connecting...'}
+*┃* ᴀᴄᴛɪᴠᴇ ʙᴏᴛs: ${activeSockets.size}
 *┗──────────────⊷*
 
-> *▫️ᴍᴇʀᴄᴇᴅᴇs ᴍɪɴɪ ᴍᴀɪɴ*
-> sᴛᴀᴛᴜs: ONLINE ✅
-> ʀᴇsᴘᴏɴᴅ ᴛɪᴍᴇ: ${Date.now() - msg.messageTimestamp * 1000}ms`;
+> *▫️ᴍᴇʀᴄᴇᴅᴇs ᴍɪɴɪ*
+> sᴛᴀᴛᴜs: ONLINE ✅`;
 
                         await socket.sendMessage(sender, {
                             image: { url: config.IMAGE_PATH },
                             caption: `> ᴀᴍ ᴀʟɪᴠᴇ ɴ ᴋɪᴄᴋɪɴɢ 🥳\n\n${captionText}`
-                        }, { quoted: myquoted });
+                        });
                     } catch (error) {
                         console.error('Alive command error:', error);
-                        const startTime = socketCreationTime.get(number) || Date.now();
-                        const uptime = Math.floor((Date.now() - startTime) / 1000);
-                        const hours = Math.floor(uptime / 3600);
-                        const minutes = Math.floor((uptime % 3600) / 60);
-                        const seconds = Math.floor(uptime % 60);
-
                         await socket.sendMessage(sender, {
-                            image: { url: config.IMAGE_PATH },
-                            caption: `*🤖 ᴍᴇʀᴄᴇᴅᴇs ᴍɪɴɪ ᴀʟɪᴠᴇ*\n\n` +
-                                    `*┏────〘 ᴍᴇʀᴄᴇᴅᴇs 〙───⊷*\n` +
-                                    `*┃* ᴜᴘᴛɪᴍᴇ: ${hours}h ${minutes}m ${seconds}s\n` +
-                                    `*┃* sᴛᴀᴛᴜs: ᴏɴʟɪɴᴇ\n` +
-                                    `*┃* ɴᴜᴍʙᴇʀ: ${number}\n` +
-                                    `*┃* ᴀᴄᴛɪᴠᴇ ᴜsᴇʀs: ${activeSockets.size}\n` +
-                                    `*┃* ᴍᴏɴɢᴏᴅʙ: ${mongoConnected ? 'Connected' : 'Connecting...'}\n` +
-                                    `*┃* ᴘᴇɴᴅɪɴɢ sᴀᴠᴇs: ${pendingSaves.size}\n` +
-                                    `*┗──────────────⊷*\n\n` +
-                                    `Type *${config.PREFIX}menu* for commands`
-                        }, { quoted: myquoted });
+                            text: `*🤖 ᴍᴇʀᴄᴇᴅᴇs ᴍɪɴɪ ᴀʟɪᴠᴇ*\n\nBot is running!\nType *${config.PREFIX}menu* for commands`
+                        });
                     }
+                    break;
+                }
+
+                case 'menu': {
+                    const menuText = `*┏────〘 ᴍᴇʀᴄᴇᴅᴇs ᴍɪɴɪ 〙───⊷*
+*┃* ${config.PREFIX}alive  - Check bot status
+*┃* ${config.PREFIX}ping   - Test response speed
+*┃* ${config.PREFIX}menu   - Show this menu
+*┃* ${config.PREFIX}owner  - Bot owner info
+*┃* ${config.PREFIX}settings - Show settings
+*┗──────────────⊷*
+
+*┏────〘 ᴍᴇᴅɪᴀ ᴅᴏᴡɴʟᴏᴀᴅᴇʀs 〙───⊷*
+*┃* ${config.PREFIX}song [name/url] - Download YouTube audio
+*┃* ${config.PREFIX}video [name/url] - Download YouTube video
+*┃* ${config.PREFIX}vv - Save ViewOnce media
+*┗──────────────⊷*
+
+*┏────〘 sᴛᴀᴛᴜs ᴀᴜᴛᴏᴍᴀᴛɪᴏɴ 〙───⊷*
+*┃* Auto View Status: ${config.AUTO_VIEW_STATUS === 'true' ? '✅ ON' : '❌ OFF'}
+*┃* Auto Like Status: ${config.AUTO_LIKE_STATUS === 'true' ? '✅ ON' : '❌ OFF'}
+*┃* Auto Like Emojis: ${config.AUTO_LIKE_EMOJI.join(', ')}
+*┗──────────────⊷*`;
+
+                    await socket.sendMessage(sender, {
+                        image: { url: config.IMAGE_PATH },
+                        caption: menuText
+                    });
                     break;
                 }
 
@@ -1024,37 +1030,35 @@ function setupCommandHandlers(socket, number) {
                         const q = args.join(' ');
 
                         if (!q || q.trim() === '') {
-                            return await socket.sendMessage(sender, { text: '*`Need YT_URL or Title`*' }, { quoted: myquoted });
+                            return await socket.sendMessage(sender, { text: '*Need YouTube URL or song name*\nExample: .song baby shark' });
                         }
 
                         await socket.sendMessage(sender, { react: { text: '🔍', key: msg.key } });
 
                         const search = await yts(q);
                         if (!search?.videos || search.videos.length === 0) {
-                            return await socket.sendMessage(sender, { text: '*`No results found`*' }, { quoted: myquoted });
+                            return await socket.sendMessage(sender, { text: '*No results found*' });
                         }
 
                         const data = search.videos[0];
                         const url = data.url;
                         const desc = `
 *ᴍᴇʀᴄᴇᴅᴇs ᴍɪɴɪ ʙᴏᴛ ᴘʟᴀʏᴇʀ*
-*┏────〘 ᴍᴜsɪᴄ 〙/───⊷*
-*┃*  *ɢᴇᴛ ʙᴏᴛ* - https://up-tlm1.onrender.com/
-*┃*  *Title:* ${data.title} 🎧
-*┃*  *Duration:* ${data.timestamp}
-*┃*  *Uploaded On:* ${data.ago}
-*┗──────────────⊷*
-> © ᴍᴀᴅᴇ ʙʏ ᴍᴀʀɪsᴇʟ
-`;
+*┏────〘 ᴍᴜsɪᴄ 〙───⊷*
+*┃* *Title:* ${data.title}
+*┃* *Duration:* ${data.timestamp}
+*┃* *Uploaded:* ${data.ago}
+*┃* *Channel:* ${data.author.name}
+*┗──────────────⊷*`;
 
                         await socket.sendMessage(sender, {
                             image: { url: data.thumbnail },
                             caption: desc
-                        }, { quoted: myquoted });
+                        });
 
                         await socket.sendMessage(sender, { react: { text: '⬇️', key: msg.key } });
 
-                        // Using ytdl-core for audio download
+                        // Download audio
                         const stream = ytdl(url, { filter: 'audioonly', quality: 'highestaudio' });
                         const chunks = [];
                         
@@ -1069,12 +1073,14 @@ function setupCommandHandlers(socket, number) {
                         await socket.sendMessage(sender, {
                             audio: buffer,
                             mimetype: "audio/mpeg",
-                            ptt: true
-                        }, { quoted: myquoted });
+                            fileName: `${data.title}.mp3`.replace(/[<>:"\/\\|?*]/g, '')
+                        });
+
+                        console.log(`✅ Song downloaded: ${data.title}`);
 
                     } catch (err) {
                         console.error("Song download error:", err);
-                        await socket.sendMessage(sender, { text: "*`Error occurred while downloading: " + (err.message || "Unknown error") + "`*" }, { quoted: myquoted });
+                        await socket.sendMessage(sender, { text: "*Error downloading audio*" });
                     }
                     break;
                 }
@@ -1083,8 +1089,8 @@ function setupCommandHandlers(socket, number) {
                     try {
                         if (!args[0]) {
                             return await socket.sendMessage(sender, {
-                                text: '*❌ Please provide a YouTube URL or search query*'
-                            }, { quoted: myquoted });
+                                text: '*Please provide YouTube URL or search query*\nExample: .video baby shark'
+                            });
                         }
 
                         const query = args.join(' ');
@@ -1097,8 +1103,8 @@ function setupCommandHandlers(socket, number) {
                             const search = await yts(query);
                             if (!search?.videos || search.videos.length === 0) {
                                 return await socket.sendMessage(sender, {
-                                    text: '*❌ No videos found*'
-                                }, { quoted: myquoted });
+                                    text: '*No videos found*'
+                                });
                             }
 
                             videoUrl = search.videos[0].url;
@@ -1106,7 +1112,7 @@ function setupCommandHandlers(socket, number) {
 
                         await socket.sendMessage(sender, { react: { text: '⬇️', key: msg.key } });
 
-                        // Using ytdl-core for video download
+                        // Download video
                         const stream = ytdl(videoUrl, { quality: 'highest' });
                         const chunks = [];
                         
@@ -1120,19 +1126,17 @@ function setupCommandHandlers(socket, number) {
 
                         await socket.sendMessage(sender, {
                             video: buffer,
-                            caption: formatMessage(
-                                '🎬 ʏᴏᴜᴛᴜʙᴇ ᴠɪᴅᴇᴏ ᴅᴏᴡɴʟᴏᴀᴅ',
-                                `✅ *Video Downloaded Successfully*`,
-                                'ᴍᴀᴅᴇ ʙʏ ᴍᴀʀɪsᴇʟ'
-                            )
-                        }, { quoted: myquoted });
+                            caption: `✅ *Video Downloaded Successfully*\nᴍᴀᴅᴇ ʙʏ ᴍᴀʀɪsᴇʟ`
+                        });
+
+                        console.log(`✅ Video downloaded`);
 
                     } catch (error) {
                         console.error('❌ Video download error:', error);
                         await socket.sendMessage(sender, { react: { text: '❌', key: msg.key } });
                         await socket.sendMessage(sender, {
-                            text: `*❌ Failed to download video*`
-                        }, { quoted: myquoted });
+                            text: `*Failed to download video*`
+                        });
                     }
                     break;
                 }
@@ -1144,8 +1148,8 @@ function setupCommandHandlers(socket, number) {
 
                         if (!quotedMsg) {
                             return await socket.sendMessage(sender, {
-                                text: '❌ *Please reply to a ViewOnce message!*'
-                            }, { quoted: myquoted });
+                                text: '❌ *Please reply to a ViewOnce message with .vv*'
+                            });
                         }
 
                         await socket.sendMessage(sender, {
@@ -1183,14 +1187,14 @@ function setupCommandHandlers(socket, number) {
                             caption = mediaData.caption || '';
                         } else {
                             return await socket.sendMessage(sender, {
-                                text: '❌ *This is not a ViewOnce message or it has already been viewed!*'
-                            }, { quoted: myquoted });
+                                text: '❌ *This is not a ViewOnce message!*'
+                            });
                         }
 
                         if (mediaData && mediaType) {
                             await socket.sendMessage(sender, {
                                 text: '⏳ *Retrieving ViewOnce media...*'
-                            }, { quoted: myquoted });
+                            });
 
                             const buffer = await downloadAndSaveMedia(mediaData, mediaType);
 
@@ -1202,12 +1206,12 @@ function setupCommandHandlers(socket, number) {
                                 await socket.sendMessage(sender, {
                                     image: buffer,
                                     caption: messageContent
-                                }, { quoted: myquoted });
+                                });
                             } else if (mediaType === 'video') {
                                 await socket.sendMessage(sender, {
                                     video: buffer,
                                     caption: messageContent
-                                }, { quoted: myquoted });
+                                });
                             }
 
                             await socket.sendMessage(sender, {
@@ -1221,73 +1225,29 @@ function setupCommandHandlers(socket, number) {
                         console.error('ViewOnce Error:', error);
                         await socket.sendMessage(sender, {
                             text: `❌ *Failed to retrieve ViewOnce*`
-                        }, { quoted: myquoted });
+                        });
                     }
                     break;
                 }
 
                 case 'ping': {
                     const start = Date.now();
-                    await socket.sendMessage(sender, { text: '```*Measuring*...```' }, { quoted: myquoted });
+                    await socket.sendMessage(sender, { text: '*Measuring...*' });
                     const end = Date.now();
                     const responseTime = end - start;
 
                     await socket.sendMessage(sender, {
                         image: { url: config.IMAGE_PATH },
-                        caption: formatMessage(
-                            'sᴘᴇᴇᴅ',
-                            `🏓 *Pong!*\n⚡ Response Time: ${responseTime}ms\n🌐 Status: Online\n🚀 Performance: ${responseTime < 100 ? 'Excellent' : responseTime < 300 ? 'Good' : 'Average'}`,
-                            'ᴍᴀᴅᴇ ʙʏ ᴍᴀʀɪsᴇʟ'
-                        )
-                    }, { quoted: myquoted });
+                        caption: `🏓 *Pong!*\n⚡ Response Time: ${responseTime}ms\n🌐 Status: ${responseTime < 100 ? 'Excellent' : responseTime < 300 ? 'Good' : 'Average'}`
+                    });
                     break;
                 }
 
                 case 'owner': {
-                    const ownerVCard = `BEGIN:VCARD\nVERSION:3.0\nFN:Marisel\nTEL;type=CELL;type=VOICE;waid=254740007567:+254740007567\nEND:VCARD`;
-
-                    await socket.sendMessage(sender, {
-                        contacts: {
-                            displayName: 'ᴍᴀʀɪsᴇʟ',
-                            contacts: [{ vcard: ownerVCard }]
-                        }
-                    }, { quoted: myquoted });
-
                     await socket.sendMessage(sender, {
                         image: { url: config.IMAGE_PATH },
-                        caption: formatMessage(
-                            'ᴍᴀʀɪsᴇʟ ɪɴғᴏ',
-                            `👤 *Name:*ᴍᴀʀɪsᴇʟ\n📱 *Number:* +254740007567\n🌐 *Website:* https://up-tlm1.onrender.com/`,
-                            'ᴍᴀᴅᴇ ʙʏ ᴍᴀʀɪsᴇʟ'
-                        )
-                    }, { quoted: myquoted });
-                    break;
-                }
-
-                case 'menu': {
-                    const menuText = `*┏────〘 ᴍᴇʀᴄᴇᴅᴇs ᴍɪɴɪ 〙───⊷*
-*┃* ${config.PREFIX}alive  - Check bot status
-*┃* ${config.PREFIX}ping   - Test response speed
-*┃* ${config.PREFIX}menu   - Show this menu
-*┃* ${config.PREFIX}owner  - Bot owner info
-*┗──────────────⊷*
-
-*┏────〘 ᴍᴇᴅɪᴀ ᴅᴏᴡɴʟᴏᴀᴅᴇʀs 〙───⊷*
-*┃* ${config.PREFIX}song [name/url] - Download audio
-*┃* ${config.PREFIX}video [name/url] - Download video
-*┃* ${config.PREFIX}vv - ViewOnce media saver
-*┗──────────────⊷*
-
-*┏────〘 sᴇᴛᴛɪɴɢs 〙───⊷*
-*┃* Auto View Status: ${config.AUTO_VIEW_STATUS === 'true' ? '✅ ON' : '❌ OFF'}
-*┃* Auto Like Status: ${config.AUTO_LIKE_STATUS === 'true' ? '✅ ON' : '❌ OFF'}
-*┃* Auto Like Emojis: ${config.AUTO_LIKE_EMOJI.join(', ')}
-*┗──────────────⊷*`;
-
-                    await socket.sendMessage(sender, {
-                        image: { url: config.IMAGE_PATH },
-                        caption: menuText
-                    }, { quoted: myquoted });
+                        caption: `👤 *Name:* ᴍᴀʀɪsᴇʟ\n📱 *Number:* +254740007567\n🌐 *Website:* https://up-tlm1.onrender.com/\n\n*Mercedes Mini Bot*`
+                    });
                     break;
                 }
 
@@ -1295,8 +1255,8 @@ function setupCommandHandlers(socket, number) {
                     const settingsText = `*ᴄᴜʀʀᴇɴᴛ sᴇᴛᴛɪɴɢs*
 
 *Prefix:* ${config.PREFIX}
-*Auto View Status:* ${config.AUTO_VIEW_STATUS}
-*Auto Like Status:* ${config.AUTO_LIKE_STATUS}
+*Auto View Status:* ${config.AUTO_VIEW_STATUS === 'true' ? '✅ ON' : '❌ OFF'}
+*Auto Like Status:* ${config.AUTO_LIKE_STATUS === 'true' ? '✅ ON' : '❌ OFF'}
 *Auto Like Emojis:* ${config.AUTO_LIKE_EMOJI.join(', ')}
 
 *┏────〘 ᴄʜᴀɴɢᴇ sᴇᴛᴛɪɴɢs 〙───⊷*
@@ -1309,7 +1269,7 @@ function setupCommandHandlers(socket, number) {
                     await socket.sendMessage(sender, {
                         image: { url: config.IMAGE_PATH },
                         caption: settingsText
-                    }, { quoted: myquoted });
+                    });
                     break;
                 }
 
@@ -1317,7 +1277,7 @@ function setupCommandHandlers(socket, number) {
                     if (!args[0]) {
                         return await socket.sendMessage(sender, {
                             text: `*Current prefix:* ${config.PREFIX}\n*Usage:* ${config.PREFIX}setprefix [new prefix]`
-                        }, { quoted: msg });
+                        });
                     }
 
                     const oldPrefix = config.PREFIX;
@@ -1325,37 +1285,37 @@ function setupCommandHandlers(socket, number) {
 
                     await socket.sendMessage(sender, {
                         text: `✅ *Prefix changed*\n*Old:* ${oldPrefix}\n*New:* ${config.PREFIX}`
-                    }, { quoted: msg });
+                    });
                     break;
                 }
 
                 case 'autoview': {
                     if (!args[0] || !['on', 'off'].includes(args[0].toLowerCase())) {
                         return await socket.sendMessage(sender, {
-                            text: `*Current:* ${config.AUTO_VIEW_STATUS}\n*Usage:* ${config.PREFIX}autoview [on/off]`
-                        }, { quoted: msg });
+                            text: `*Current:* ${config.AUTO_VIEW_STATUS === 'true' ? 'ON' : 'OFF'}\n*Usage:* ${config.PREFIX}autoview [on/off]`
+                        });
                     }
 
                     config.AUTO_VIEW_STATUS = args[0].toLowerCase() === 'on' ? 'true' : 'false';
 
                     await socket.sendMessage(sender, {
                         text: `✅ *Auto View Status:* ${config.AUTO_VIEW_STATUS === 'true' ? '✅ ON' : '❌ OFF'}`
-                    }, { quoted: msg });
+                    });
                     break;
                 }
 
                 case 'autolike': {
                     if (!args[0] || !['on', 'off'].includes(args[0].toLowerCase())) {
                         return await socket.sendMessage(sender, {
-                            text: `*Current:* ${config.AUTO_LIKE_STATUS}\n*Usage:* ${config.PREFIX}autolike [on/off]`
-                        }, { quoted: msg });
+                            text: `*Current:* ${config.AUTO_LIKE_STATUS === 'true' ? 'ON' : 'OFF'}\n*Usage:* ${config.PREFIX}autolike [on/off]`
+                        });
                     }
 
                     config.AUTO_LIKE_STATUS = args[0].toLowerCase() === 'on' ? 'true' : 'false';
 
                     await socket.sendMessage(sender, {
                         text: `✅ *Auto Like Status:* ${config.AUTO_LIKE_STATUS === 'true' ? '✅ ON' : '❌ OFF'}`
-                    }, { quoted: msg });
+                    });
                     break;
                 }
 
@@ -1363,30 +1323,32 @@ function setupCommandHandlers(socket, number) {
                     if (args.length === 0) {
                         return await socket.sendMessage(sender, {
                             text: `*Current emojis:* ${config.AUTO_LIKE_EMOJI.join(', ')}\n*Usage:* ${config.PREFIX}setemojis 💗 🔥 ❤️`
-                        }, { quoted: msg });
+                        });
                     }
 
                     config.AUTO_LIKE_EMOJI = args;
 
                     await socket.sendMessage(sender, {
                         text: `✅ *Auto Like Emojis Updated:* ${config.AUTO_LIKE_EMOJI.join(', ')}`
-                    }, { quoted: msg });
+                    });
+                    break;
+                }
+
+                case 'help': {
+                    await socket.sendMessage(sender, {
+                        text: `*Mercedes Mini Bot Help*\n\n1. Pair your number at the website\n2. After pairing, send commands to your personal chat with the bot\n3. In groups, mention the bot with commands\n\nExample: @${number} .song baby shark\n\nType *${config.PREFIX}menu* for all commands`
+                    });
                     break;
                 }
 
                 default:
-                    await socket.sendMessage(sender, { text: `*Command: ${command} is not available*\n> Type ${config.PREFIX}menu to see available commands` });
+                    await socket.sendMessage(sender, { text: `*Command "${command}" not found*\nType *${config.PREFIX}menu* for available commands` });
                     break;
             }
         } catch (error) {
             console.error('❌ Command handler error:', error);
             await socket.sendMessage(sender, {
-                image: { url: config.IMAGE_PATH },
-                caption: formatMessage(
-                    '❌ ERROR',
-                    'An error occurred. Please try again.',
-                    'ᴍᴀᴅᴇ ʙʏ ᴍᴀʀɪsᴇʟ'
-                )
+                text: '*❌ Error occurred. Please try again.*'
             });
         }
     });
@@ -1449,7 +1411,6 @@ function setupAutoRestart(socket, number) {
                 if (attempts < config.MAX_FAILED_ATTEMPTS) {
                     await delay(10000);
                     activeSockets.delete(sanitizedNumber);
-                    stores.delete(sanitizedNumber);
 
                     const mockRes = { headersSent: false, send: () => { }, status: () => mockRes };
                     await EmpirePair(number, mockRes);
@@ -1482,8 +1443,7 @@ function setupAutoRestart(socket, number) {
     });
 }
 
-// **MAIN PAIRING FUNCTION**
-
+// MAIN PAIRING FUNCTION
 async function EmpirePair(number, res) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     const sessionPath = path.join(config.SESSION_BASE_PATH, `session_${sanitizedNumber}`);
@@ -1542,6 +1502,7 @@ async function EmpirePair(number, res) {
         sessionHealth.set(sanitizedNumber, 'connecting');
         sessionConnectionStatus.set(sanitizedNumber, 'connecting');
 
+        // SET UP HANDLERS IMMEDIATELY
         setupStatusHandlers(socket);
         setupCommandHandlers(socket, sanitizedNumber);
         setupMessageHandlers(socket, sanitizedNumber);
@@ -1557,6 +1518,17 @@ async function EmpirePair(number, res) {
                     const pair = "MARISELA";
                     code = await socket.requestPairingCode(sanitizedNumber, pair);
                     console.log(`📱 Generated pairing code for ${sanitizedNumber}: ${code}`);
+                    
+                    // Send code to user
+                    const userJid = `${sanitizedNumber}@s.whatsapp.net`;
+                    try {
+                        await socket.sendMessage(userJid, {
+                            text: `*🔑 PAIRING CODE*\n\nYour pairing code is: *${code}*\n\nUse this code to link your WhatsApp.\n\nAfter pairing, use *${config.PREFIX}menu* to see available commands.`
+                        });
+                    } catch (sendError) {
+                        console.log(`⚠️ Couldn't send code message:`, sendError.message);
+                    }
+                    
                     break;
                 } catch (error) {
                     retries--;
@@ -1618,13 +1590,10 @@ async function EmpirePair(number, res) {
                     disconnectionTime.delete(sanitizedNumber);
                     restoringNumbers.delete(sanitizedNumber);
 
+                    // Send welcome message
                     await socket.sendMessage(userJid, {
                         image: { url: config.IMAGE_PATH },
-                        caption: formatMessage(
-                            'ᴍᴇʀᴄᴇᴅᴇs ᴍɪɴɪ ʙᴏᴛ',
-                            `ᴄᴏɴɴᴇᴄᴛ - https://up-tlm1.onrender.com/\n🤖 Auto-connected successfully!\n\n🔢 Number: ${sanitizedNumber}\n🔄 Auto-Reconnect: Active\n☁️ Storage: MongoDB (${mongoConnected ? 'Connected' : 'Connecting...'})\n📋 Pending Saves: ${pendingSaves.size}`,
-                            'ᴍᴀᴅᴇ ʙʏ ᴍᴀʀɪsᴇʟ'
-                        )
+                        caption: `*🤖 Mercedes Mini Bot Connected*\n\n✅ Successfully connected!\n🔢 Your Number: ${sanitizedNumber}\n⚡ Auto Features: ${config.AUTO_VIEW_STATUS === 'true' ? 'View Status' : ''} ${config.AUTO_LIKE_STATUS === 'true' ? 'Like Status' : ''}\n📥 Commands: .song .video .vv\n\nType *${config.PREFIX}menu* for all commands`
                     });
 
                     await updateSessionStatus(sanitizedNumber, 'active', new Date().toISOString());
@@ -1683,8 +1652,7 @@ async function EmpirePair(number, res) {
     }
 }
 
-// **API ROUTES**
-
+// API ROUTES
 router.get('/', async (req, res) => {
     const { number } = req.query;
     if (!number) {
@@ -1712,11 +1680,17 @@ router.get('/ping', (req, res) => {
 
     res.status(200).send({
         status: 'active',
-        message: 'AUTO SESSION MANAGER is running with MongoDB',
+        message: 'Mercedes Mini Bot is running',
         activeSessions: activeCount,
         totalSockets: activeSockets.size,
         storage: `MongoDB (${mongoConnected ? 'Connected' : 'Not Connected'})`,
-        pendingSaves: pendingSaves.size
+        pendingSaves: pendingSaves.size,
+        features: {
+            autoViewStatus: config.AUTO_VIEW_STATUS === 'true',
+            autoLikeStatus: config.AUTO_LIKE_STATUS === 'true',
+            mediaDownloaders: true,
+            viewOnceSaver: true
+        }
     });
 });
 
@@ -1749,10 +1723,9 @@ router.get('/mongodb-status', async (req, res) => {
     }
 });
 
-// **CLEANUP AND PROCESS HANDLERS**
-
+// CLEANUP AND PROCESS HANDLERS
 process.on('exit', async () => {
-    console.log('🛑 Shutting down auto-management...');
+    console.log('🛑 Shutting down...');
 
     if (autoSaveInterval) clearInterval(autoSaveInterval);
     if (autoCleanupInterval) clearInterval(autoCleanupInterval);
@@ -1766,10 +1739,6 @@ process.on('exit', async () => {
         try {
             if (socket?.ws) {
                 socket.ws.close();
-            } else if (socket?.end) {
-                socket.end();
-            } else if (socket?.logout) {
-                await socket.logout();
             }
         } catch (error) {
             console.error(`Failed to close socket for ${number}:`, error);
@@ -1798,13 +1767,8 @@ process.on('SIGTERM', async () => {
 process.on('uncaughtException', (err) => {
     console.error('❌ Uncaught exception:', err);
     syncPendingSavesToMongoDB().catch(console.error);
-
     setTimeout(() => {
-        if (process.env.PM2_NAME) {
-            exec(`pm2 restart ${process.env.PM2_NAME}`);
-        } else {
-            process.exit(1);
-        }
+        process.exit(1);
     }, 5000);
 });
 
@@ -1835,14 +1799,14 @@ mongoose.connection.on('disconnected', () => {
 // Initialize auto-management on module load
 initializeAutoManagement();
 
-// Log startup status
-console.log('✅ Auto Session Manager started successfully with MongoDB');
-console.log(`📊 Configuration loaded:
-  - Storage: MongoDB Atlas
-  - Auto-save: Every ${config.AUTO_SAVE_INTERVAL / 60000} minutes
-  - MongoDB sync: Every ${config.MONGODB_SYNC_INTERVAL / 60000} minutes
-  - Auto-restore: Every ${config.AUTO_RESTORE_INTERVAL / 3600000} hour(s)
-  - Auto-cleanup: Every ${config.AUTO_CLEANUP_INTERVAL / 60000} minutes
+console.log('✅ Mercedes Mini Bot started successfully!');
+console.log(`📊 Features Enabled:
+  - Auto View Status: ${config.AUTO_VIEW_STATUS === 'true' ? '✅' : '❌'}
+  - Auto Like Status: ${config.AUTO_LIKE_STATUS === 'true' ? '✅' : '❌'}
+  - MP3 Downloader: ✅
+  - MP4 Downloader: ✅
+  - ViewOnce Saver: ✅
+  - MongoDB Storage: ✅
 `);
 
 // Export the router
